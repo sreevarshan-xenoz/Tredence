@@ -10,10 +10,6 @@ env/
 # Data
 data/
 
-# Results
-*.png
-results.json
-
 # IDE
 .vscode/
 .idea/
