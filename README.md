@@ -2,7 +2,7 @@
 
 This project implements a **Self-Pruning Neural Network** as part of the Tredence AI Engineering Case Study. The model uses a differentiable gating mechanism within custom linear layers to learn an optimal pruning mask during training, effectively balancing model efficiency with task performance.
 
-## 🚀 Key Features
+## key Features
 - **PrunableLinear Layer:** A custom layer that integrates learnable gate scores with model weights, enabling differentiable pruning via a sigmoid activation.
 - **Sparsity Regularization:** Employs $L_1$ regularization on gate activations to push redundant parameters towards zero.
 - **Negative Gate Initialization:** Uses specialized initialization (-2.0) to facilitate rapid and stable convergence towards sparse architectures.
