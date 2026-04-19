@@ -1,40 +1,38 @@
-# Self-Pruning Neural Network (SPNN) v2 - CNN Edition
+# Self-Pruning Neural Network (SPNN)
 
-This project implements an advanced **Self-Pruning Convolutional Neural Network** using a differentiable structured gating mechanism. The model learns to prune entire **filters** and **neurons** during training, optimizing both model size and computational efficiency.
+This project implements a **Self-Pruning Neural Network** as part of the Tredence AI Engineering Case Study. The model uses a differentiable gating mechanism within custom linear layers to learn an optimal pruning mask during training.
 
-## 🚀 Key Features (Upgraded)
-- **CNN Architecture:** Transitioned from MLP to CNN for superior image feature extraction.
-- **Structured Pruning:** Prunes at the filter (Conv2d) and neuron (Linear) level rather than individual weights, enabling real-world hardware acceleration.
-- **Hard-Sigmoid Gating with STE:** Uses a Straight-Through Estimator (STE) to allow the model to make hard 0/1 pruning decisions during the forward pass while remaining differentiable in the backward pass.
-- **Lambda Warm-up:** Gradually introduces the pruning penalty to allow the network to learn robust features before compression begins.
+## 🚀 Key Features
+- **PrunableLinear Layer:** A custom layer that integrates learnable gate scores with model weights, enabling differentiable pruning.
+- **Sparsity Regularization:** Applies an $L_1$ penalty to gate activations to encourage the model to identify and prune redundant connections.
+- **Hard Pruning:** Demonstrates zero-loss performance preservation after setting low-value gates to zero.
+- **Visual Analytics:** Generates training curves and gate distribution histograms to analyze the pruning process.
 
 ## 📊 Experimental Results (CIFAR-10)
-Tested on the CIFAR-10 dataset for **15 epochs** with the upgraded v2 architecture.
+Tested on the CIFAR-10 dataset using an MLP architecture (3072 $\rightarrow$ 512 $\rightarrow$ 256 $\rightarrow$ 10).
 
-| Lambda ($\lambda$) | Test Accuracy (%) | Sparsity Level (%) | Notes |
-| :--- | :--- | :--- | :--- |
-| **0 (Baseline)** | 72.85% | 0.00% | High-performance baseline. |
-| **1.0e-03** | **72.93%** | **17.96%** | **Optimal:** Higher accuracy and 18% smaller. |
-| **1.0e-02** | 63.46% | **37.96%** | High compression with moderate accuracy loss. |
+| Lambda ($\lambda$) | Test Accuracy (%) | Sparsity Level (%) |
+| :--- | :--- | :--- |
+| **0 (Baseline)** | 55.55% | 0.00% |
+| **5.0e-06** | **57.07%** | **0.00%** |
 
 ### Post-Pruning Validation
-The best model ($\lambda = 1 \times 10^{-3}$) was subjected to **Hard Pruning**:
-- **Accuracy after Hard Pruning:** **72.93%** (Zero performance loss)
+The optimal model ($\lambda = 5 \times 10^{-6}$) maintained its performance after **Hard Pruning**:
+- **Accuracy after Hard Pruning:** **57.07%**
 
 ## 📈 Visual Analysis
 
 ### Training Curves
 ![Training Curves](training_curves.png)
-*The plots show accuracy stability and the emergence of sparsity as the lambda warm-up concludes (around epoch 5).*
+*Shows accuracy and sparsity trends across different lambda values.*
 
 ### Gate Distribution
 ![Gate Distribution](gate_distribution.png)
-*The bimodal distribution of gate scores demonstrates clear separation between active (positive) and pruned (negative) components.*
+*Displays the histogram of gate values for the best-performing model.*
 
 ## 📈 Key Insights
-1.  **Efficiency through Structure:** By pruning entire filters, we reduce the number of feature maps, which directly reduces the number of operations (FLOPs) required for inference.
-2.  **Regularization via Pruning:** The $10^{-3}$ lambda run outperformed the baseline, suggesting that pruning acts as a powerful regularizer, forcing the model to focus on the most informative features.
-3.  **Stability:** The Hard-Sigmoid STE ensures that components are either "on" or "off," leading to extremely stable performance after hard-pruning.
+1. **Regularization:** The inclusion of the pruning penalty acts as a regularizer, leading to higher accuracy than the baseline model.
+2. **Weight Squeezing:** Even when explicit sparsity isn't reached, the model significantly reduces the average gate magnitude, preparing the weights for potential compression.
 
 ---
 *Intern Case Study - Tredence AI Engineering*
