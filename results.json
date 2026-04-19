@@ -2,26 +2,26 @@
   "results": [
     {
       "lambda": 0.0,
-      "test_acc": 55.55,
+      "test_acc": 58.36,
       "sparsity": 0.0
     },
     {
-      "lambda": 1e-06,
-      "test_acc": 55.57,
-      "sparsity": 0.0
+      "lambda": 5.0,
+      "test_acc": 58.17,
+      "sparsity": 0.4105488673867386
     },
     {
-      "lambda": 5e-06,
-      "test_acc": 57.07,
-      "sparsity": 0.0
+      "lambda": 10.0,
+      "test_acc": 58.5,
+      "sparsity": 1.6332297292229223
     },
     {
-      "lambda": 1e-05,
-      "test_acc": 56.45,
-      "sparsity": 0.0
+      "lambda": 20.0,
+      "test_acc": 58.2,
+      "sparsity": 12.242571913441344
     }
   ],
-  "best_lambda": 5e-06,
-  "best_test_acc": 57.07,
-  "final_sparsity": 0.0
+  "best_lambda": 10.0,
+  "best_test_acc": 58.5,
+  "final_sparsity": 1.6332297292229223
 }

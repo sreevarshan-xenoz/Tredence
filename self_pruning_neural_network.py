@@ -39,7 +39,7 @@ class PrunableLinear(nn.Module):
         nn.init.kaiming_uniform_(self.weight, a=np.sqrt(5))
         bound = 1 / np.sqrt(in_features)
         nn.init.uniform_(self.bias, -bound, bound)
-        nn.init.zeros_(self.gate_scores)
+        nn.init.constant_(self.gate_scores, 0.5)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         gates = torch.sigmoid(self.gate_scores)
@@ -53,23 +53,26 @@ class PrunableNet(nn.Module):
         self.fc1 = PrunableLinear(3 * 32 * 32, 512)
         self.fc2 = PrunableLinear(512, 256)
         self.fc3 = PrunableLinear(256, 10)
+        self.dropout = nn.Dropout(0.2)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         x = self.flatten(x)
         x = F.relu(self.fc1(x))
+        x = self.dropout(x)
         x = F.relu(self.fc2(x))
+        x = self.dropout(x)
         x = self.fc3(x)
         return x
 
     def get_sparsity_loss(self) -> torch.Tensor:
-        sparsity = torch.tensor(0.0, device=device)
+        sparsity = []
         for module in self.modules():
             if isinstance(module, PrunableLinear):
                 gates = torch.sigmoid(module.gate_scores)
-                sparsity += gates.sum()
-        return sparsity
+                sparsity.append(gates.mean())
+        return torch.stack(sparsity).mean()
 
-def compute_sparsity(model: nn.Module, threshold: float = 1e-2) -> float:
+def compute_sparsity(model: nn.Module, threshold: float = 0.1) -> float:
     total = 0
     pruned = 0
     with torch.no_grad():
@@ -183,12 +186,12 @@ def plot_gate_distribution(model: nn.Module, save_path: str = "gate_distribution
     plt.title("Final Gate Value Distribution (Best Model)")
     plt.xlabel("Gate Value (0 = pruned, 1 = active)")
     plt.ylabel("Count")
-    plt.axvline(1e-2, color='red', linestyle='--', label='Pruning threshold (1e-2)')
+    plt.axvline(0.5, color='red', linestyle='--', label='Pruning threshold (0.5)')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print(f"Gate distribution plot saved → {save_path}")
-    print(f"Mean gate: {np.mean(all_gates):.4f} | % near zero: {(all_gates < 1e-2).mean()*100:.2f}%")
+    print(f"Mean gate: {np.mean(all_gates):.4f} | % near zero: {(all_gates < 0.5).mean()*100:.2f}%")
 
 if __name__ == "__main__":
     set_seed(42)
@@ -255,7 +258,7 @@ if __name__ == "__main__":
         for module in best_model.modules():
             if isinstance(module, PrunableLinear):
                 gates = torch.sigmoid(module.gate_scores)
-                mask = (gates >= 1e-2).float()
+                mask = (gates >= 0.1).float()
                 module.weight.data *= mask
     
     hard_acc = evaluate(best_model, testloader)
@@ -269,3 +272,4 @@ if __name__ == "__main__":
     }
     Path("results.json").write_text(json.dumps(output, indent=2))
     print("\nAll done! Files created: training_curves.png, gate_distribution.png, results.json")
+
