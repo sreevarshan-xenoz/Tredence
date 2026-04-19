@@ -39,7 +39,7 @@ class PrunableLinear(nn.Module):
         nn.init.kaiming_uniform_(self.weight, a=np.sqrt(5))
         bound = 1 / np.sqrt(in_features)
         nn.init.uniform_(self.bias, -bound, bound)
-        nn.init.constant_(self.gate_scores, 0.5)
+        nn.init.constant_(self.gate_scores, -2.0)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
         gates = torch.sigmoid(self.gate_scores)
@@ -65,12 +65,12 @@ class PrunableNet(nn.Module):
         return x
 
     def get_sparsity_loss(self) -> torch.Tensor:
-        sparsity = []
+        sparsity = torch.tensor(0.0, device=device)
         for module in self.modules():
             if isinstance(module, PrunableLinear):
                 gates = torch.sigmoid(module.gate_scores)
-                sparsity.append(gates.mean())
-        return torch.stack(sparsity).mean()
+                sparsity += gates.sum()
+        return sparsity
 
 def compute_sparsity(model: nn.Module, threshold: float = 0.1) -> float:
     total = 0

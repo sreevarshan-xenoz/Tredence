@@ -2,26 +2,26 @@
   "results": [
     {
       "lambda": 0.0,
-      "test_acc": 58.36,
+      "test_acc": 49.44,
       "sparsity": 0.0
     },
     {
-      "lambda": 5.0,
-      "test_acc": 58.17,
-      "sparsity": 0.4105488673867386
+      "lambda": 1e-07,
+      "test_acc": 49.05,
+      "sparsity": 1.2130119261926193
     },
     {
-      "lambda": 10.0,
-      "test_acc": 58.5,
-      "sparsity": 1.6332297292229223
+      "lambda": 5e-07,
+      "test_acc": 48.8,
+      "sparsity": 29.491074107410743
     },
     {
-      "lambda": 20.0,
-      "test_acc": 58.2,
-      "sparsity": 12.242571913441344
+      "lambda": 1e-06,
+      "test_acc": 48.74,
+      "sparsity": 58.102978266576656
     }
   ],
-  "best_lambda": 10.0,
-  "best_test_acc": 58.5,
-  "final_sparsity": 1.6332297292229223
+  "best_lambda": 0.0,
+  "best_test_acc": 49.44,
+  "final_sparsity": 0.0
 }
