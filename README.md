@@ -1,37 +1,40 @@
-# Self-Pruning Neural Network (SPNN)
+# Self-Pruning Neural Network (SPNN) v2 - CNN Edition
 
-This project implements a **Self-Pruning Neural Network** using a differentiable gating mechanism. The model learns which connections are necessary for performance and automatically "prunes" redundant weights by driving their associated gate scores toward zero through $L_1$ regularization.
+This project implements an advanced **Self-Pruning Convolutional Neural Network** using a differentiable structured gating mechanism. The model learns to prune entire **filters** and **neurons** during training, optimizing both model size and computational efficiency.
 
-## 🚀 Key Features
-- **Differentiable Gating:** Each weight has a learnable gate score, mapped through a sigmoid function.
-- **Sparsity-Inducing Loss:** A penalty term ($\lambda$) is added to the loss function to encourage sparsity.
-- **Hard Pruning:** Connections with gate values below a threshold ($1 \times 10^{-2}$) can be permanently zeroed without retraining.
-- **Automated Benchmarking:** Compares multiple $\lambda$ values to find the optimal trade-off between model size and accuracy.
+## 🚀 Key Features (Upgraded)
+- **CNN Architecture:** Transitioned from MLP to CNN for superior image feature extraction.
+- **Structured Pruning:** Prunes at the filter (Conv2d) and neuron (Linear) level rather than individual weights, enabling real-world hardware acceleration.
+- **Hard-Sigmoid Gating with STE:** Uses a Straight-Through Estimator (STE) to allow the model to make hard 0/1 pruning decisions during the forward pass while remaining differentiable in the backward pass.
+- **Lambda Warm-up:** Gradually introduces the pruning penalty to allow the network to learn robust features before compression begins.
 
 ## 📊 Experimental Results (CIFAR-10)
-Tested on the CIFAR-10 dataset for **30 epochs** per configuration.
+Tested on the CIFAR-10 dataset for **15 epochs** with the upgraded v2 architecture.
 
 | Lambda ($\lambda$) | Test Accuracy (%) | Sparsity Level (%) | Notes |
 | :--- | :--- | :--- | :--- |
-| **0 (Baseline)** | 54.77% | 0.00% | Full dense model performance. |
-| **1.0e-06** | 55.26% | 0.27% | Slight regularization boost. |
-| **5.0e-06** | **55.50%** | 0.73% | **Best accuracy** with mild pruning. |
-| **1.0e-05** | 55.30% | **2.08%** | Highest compression while maintaining accuracy. |
+| **0 (Baseline)** | 72.85% | 0.00% | High-performance baseline. |
+| **1.0e-03** | **72.93%** | **17.96%** | **Optimal:** Higher accuracy and 18% smaller. |
+| **1.0e-02** | 63.46% | **37.96%** | High compression with moderate accuracy loss. |
 
 ### Post-Pruning Validation
-The best model ($\lambda = 5 \times 10^{-6}$) was subjected to **Hard Pruning** (zeroing all weights where $gate < 0.01$):
-- **Accuracy after Hard Pruning:** **55.50%** (Zero performance loss)
+The best model ($\lambda = 1 \times 10^{-3}$) was subjected to **Hard Pruning**:
+- **Accuracy after Hard Pruning:** **72.93%** (Zero performance loss)
 
-## 🛠 Project Structure
-- `self_pruning_neural_network.py`: Main implementation (Model, Training, Evaluation).
-- `training_curves.png`: Visualizes accuracy and sparsity trends over time.
-- `gate_distribution.png`: Histogram showing how many gates were driven toward zero.
-- `results.json`: Raw data for all experiments.
+## 📈 Visual Analysis
 
-## 📈 Analysis
-1. **Regularization Effect:** Small values of $\lambda$ (like $1 \times 10^{-6}$) actually improve accuracy over the baseline by acting as a form of "Dropout-like" regularization.
-2. **Convergence:** Sparsity typically begins to emerge after epoch 20 as the $L_1$ penalty overcomes the initial weight initialization noise.
-3. **Thresholding:** The gate distribution shows a bimodal trend, where gates either stay near 1.0 or migrate toward 0.0, making the pruning decision stable.
+### Training Curves
+![Training Curves](training_curves.png)
+*The plots show accuracy stability and the emergence of sparsity as the lambda warm-up concludes (around epoch 5).*
+
+### Gate Distribution
+![Gate Distribution](gate_distribution.png)
+*The bimodal distribution of gate scores demonstrates clear separation between active (positive) and pruned (negative) components.*
+
+## 📈 Key Insights
+1.  **Efficiency through Structure:** By pruning entire filters, we reduce the number of feature maps, which directly reduces the number of operations (FLOPs) required for inference.
+2.  **Regularization via Pruning:** The $10^{-3}$ lambda run outperformed the baseline, suggesting that pruning acts as a powerful regularizer, forcing the model to focus on the most informative features.
+3.  **Stability:** The Hard-Sigmoid STE ensures that components are either "on" or "off," leading to extremely stable performance after hard-pruning.
 
 ---
 *Intern Case Study - Tredence AI Engineering*

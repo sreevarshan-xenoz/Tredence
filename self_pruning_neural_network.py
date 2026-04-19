@@ -29,56 +29,100 @@ def set_seed(seed: int = 42):
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 print(f"Using device: {device}")
 
+class HardSigmoidSTE(torch.autograd.Function):
+    @staticmethod
+    def forward(ctx, x):
+        return (x > 0).float()
+
+    @staticmethod
+    def backward(ctx, grad_output):
+        # Straight-Through Estimator: gradient of hard sigmoid approximated by 
+        # a windowed gradient (like in binary networks)
+        return F.hardtanh(grad_output)
+
+def hard_sigmoid_ste(x):
+    return HardSigmoidSTE.apply(x)
+
+class PrunableConv2d(nn.Module):
+    def __init__(self, in_channels: int, out_channels: int, kernel_size: int, padding: int = 1):
+        super().__init__()
+        self.weight = nn.Parameter(torch.empty(out_channels, in_channels, kernel_size, kernel_size))
+        self.bias = nn.Parameter(torch.empty(out_channels))
+        # One gate per FILTER (Structured Pruning)
+        self.gate_scores = nn.Parameter(torch.empty(out_channels, 1, 1, 1))
+        
+        nn.init.kaiming_uniform_(self.weight, a=np.sqrt(5))
+        fan_in, _ = nn.init._calculate_fan_in_and_fan_out(self.weight)
+        bound = 1 / np.sqrt(fan_in)
+        nn.init.uniform_(self.bias, -bound, bound)
+        nn.init.constant_(self.gate_scores, 0.5) # Start half-open
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Use hard sigmoid for clear 0/1 decisions
+        gates = hard_sigmoid_ste(self.gate_scores)
+        pruned_weights = self.weight * gates
+        return F.conv2d(x, pruned_weights, self.bias, padding=1)
+
 class PrunableLinear(nn.Module):
     def __init__(self, in_features: int, out_features: int):
         super().__init__()
         self.weight = nn.Parameter(torch.empty(out_features, in_features))
         self.bias = nn.Parameter(torch.empty(out_features))
-        self.gate_scores = nn.Parameter(torch.empty(out_features, in_features))
+        # One gate per NEURON (Structured Pruning)
+        self.gate_scores = nn.Parameter(torch.empty(out_features, 1))
         
         nn.init.kaiming_uniform_(self.weight, a=np.sqrt(5))
         bound = 1 / np.sqrt(in_features)
         nn.init.uniform_(self.bias, -bound, bound)
-        nn.init.zeros_(self.gate_scores)
+        nn.init.constant_(self.gate_scores, 0.5)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
-        gates = torch.sigmoid(self.gate_scores)
+        gates = hard_sigmoid_ste(self.gate_scores)
         pruned_weights = self.weight * gates
         return F.linear(x, pruned_weights, self.bias)
 
 class PrunableNet(nn.Module):
     def __init__(self):
         super().__init__()
+        # Simple CNN Architecture
+        self.conv1 = PrunableConv2d(3, 32, 3)
+        self.conv2 = PrunableConv2d(32, 64, 3)
+        self.pool = nn.MaxPool2d(2, 2)
+        self.conv3 = PrunableConv2d(64, 128, 3)
+        
         self.flatten = nn.Flatten()
-        self.fc1 = PrunableLinear(3 * 32 * 32, 512)
-        self.fc2 = PrunableLinear(512, 256)
-        self.fc3 = PrunableLinear(256, 10)
+        # CIFAR-10: 32x32 -> (after 3 convs with 1 pool) -> 16x16
+        # Using 3 convs with 1 pool at the end for simplicity
+        self.fc1 = PrunableLinear(128 * 16 * 16, 256)
+        self.fc2 = PrunableLinear(256, 10)
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        x = F.relu(self.conv1(x))
+        x = F.relu(self.conv2(x))
+        x = self.pool(F.relu(self.conv3(x)))
         x = self.flatten(x)
         x = F.relu(self.fc1(x))
-        x = F.relu(self.fc2(x))
-        x = self.fc3(x)
+        x = self.fc2(x)
         return x
 
     def get_sparsity_loss(self) -> torch.Tensor:
         sparsity = torch.tensor(0.0, device=device)
         for module in self.modules():
-            if isinstance(module, PrunableLinear):
-                gates = torch.sigmoid(module.gate_scores)
-                sparsity += gates.sum()
+            if isinstance(module, (PrunableLinear, PrunableConv2d)):
+                # L1 on gate scores to push them to 0
+                sparsity += torch.norm(module.gate_scores, 1)
         return sparsity
 
-def compute_sparsity(model: nn.Module, threshold: float = 1e-2) -> float:
+def compute_sparsity(model: nn.Module, threshold: float = 0.5) -> float:
     total = 0
     pruned = 0
     with torch.no_grad():
         for module in model.modules():
-            if isinstance(module, PrunableLinear):
-                gates = torch.sigmoid(module.gate_scores)
+            if isinstance(module, (PrunableLinear, PrunableConv2d)):
+                gates = (module.gate_scores > 0).float()
                 num = gates.numel()
                 total += num
-                pruned += (gates < threshold).sum().item()
+                pruned += (gates == 0).sum().item()
     return (pruned / total * 100) if total > 0 else 0.0
 
 def evaluate(model: nn.Module, testloader: DataLoader) -> float:
@@ -93,18 +137,22 @@ def evaluate(model: nn.Module, testloader: DataLoader) -> float:
             correct += (predicted == labels).sum().item()
     return 100.0 * correct / total
 
-def train_one_lambda(lambda_val: float, epochs: int, trainloader: DataLoader,
+def train_one_lambda(target_lambda: float, epochs: int, trainloader: DataLoader,
                      testloader: DataLoader) -> Tuple[nn.Module, float, float, List[Dict]]:
     model = PrunableNet().to(device)
     optimizer = optim.Adam(model.parameters(), lr=0.001)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=8, gamma=0.7)
+    scheduler = optim.lr_scheduler.CosineAnnealingLR(optimizer, T_max=epochs)
     criterion = nn.CrossEntropyLoss()
     
     history = []
+    warmup_epochs = 5
     
     for epoch in range(epochs):
         model.train()
         total_loss = 0.0
+        
+        # Lambda Warm-up: Linear increase from 0 to target_lambda
+        current_lambda = target_lambda * min(1.0, (epoch / warmup_epochs)) if epoch > 2 else 0.0
         
         for images, labels in trainloader:
             images, labels = images.to(device), labels.to(device)
@@ -114,7 +162,7 @@ def train_one_lambda(lambda_val: float, epochs: int, trainloader: DataLoader,
             
             class_loss = criterion(outputs, labels)
             sparsity_loss = model.get_sparsity_loss()
-            loss = class_loss + lambda_val * sparsity_loss
+            loss = class_loss + current_lambda * sparsity_loss
             
             loss.backward()
             optimizer.step()
@@ -134,12 +182,12 @@ def train_one_lambda(lambda_val: float, epochs: int, trainloader: DataLoader,
             "sparsity": sparsity_pct
         })
         
-        print(f"Epoch {epoch+1:2d}/{epochs} | Loss: {avg_loss:.3f} | "
+        print(f"Epoch {epoch+1:2d}/{epochs} | λ: {current_lambda:.2e} | Loss: {avg_loss:.3f} | "
               f"Acc: {test_acc:.2f}% | Sparsity: {sparsity_pct:.2f}%")
     
     final_acc = history[-1]["test_acc"]
     final_sparsity = history[-1]["sparsity"]
-    print(f"Finished λ={lambda_val} → Acc: {final_acc:.2f}% | Sparsity: {final_sparsity:.2f}%\n")
+    print(f"Finished λ={target_lambda} → Acc: {final_acc:.2f}% | Sparsity: {final_sparsity:.2f}%\n")
     
     return model, final_acc, final_sparsity, history
 
@@ -172,26 +220,26 @@ def plot_training_curves(histories: Dict[float, List[Dict]], save_path: str = "t
     print(f"Training curves saved → {save_path}")
 
 def plot_gate_distribution(model: nn.Module, save_path: str = "gate_distribution.png"):
-    all_gates = []
+    all_scores = []
     with torch.no_grad():
         for module in model.modules():
-            if isinstance(module, PrunableLinear):
-                gates = torch.sigmoid(module.gate_scores).cpu().numpy().flatten()
-                all_gates.append(gates)
-    all_gates = np.concatenate(all_gates)
+            if isinstance(module, (PrunableLinear, PrunableConv2d)):
+                scores = module.gate_scores.cpu().numpy().flatten()
+                all_scores.append(scores)
+    all_scores = np.concatenate(all_scores)
     
     plt.figure(figsize=(10, 6))
-    plt.hist(all_gates, bins=120, color='#1f77b4', edgecolor='black', alpha=0.75)
-    plt.title("Final Gate Value Distribution (Best Model)")
-    plt.xlabel("Gate Value (0 = pruned, 1 = active)")
+    plt.hist(all_scores, bins=50, color='#1f77b4', edgecolor='black', alpha=0.75)
+    plt.title("Final Gate Score Distribution (Best Model)")
+    plt.xlabel("Gate Score ( >0 means Active, <0 means Pruned)")
     plt.ylabel("Count")
-    plt.axvline(1e-2, color='red', linestyle='--', label='Pruning threshold (1e-2)')
+    plt.axvline(0, color='red', linestyle='--', label='Pruning threshold (0)')
     plt.legend()
     plt.grid(True, alpha=0.3)
     plt.savefig(save_path, dpi=300, bbox_inches='tight')
     print(f"Gate distribution plot saved → {save_path}")
     
-    print(f"Mean gate: {np.mean(all_gates):.4f} | % near zero: {(all_gates < 1e-2).mean()*100:.2f}%")
+    print(f"Mean score: {np.mean(all_scores):.4f} | % pruned: {(all_scores <= 0).mean()*100:.2f}%")
 
 if __name__ == "__main__":
     set_seed(42)
@@ -257,9 +305,8 @@ if __name__ == "__main__":
     print("\nHard-pruning the best model...")
     with torch.no_grad():
         for module in best_model.modules():
-            if isinstance(module, PrunableLinear):
-                gates = torch.sigmoid(module.gate_scores)
-                mask = (gates >= 1e-2).float()
+            if isinstance(module, (PrunableLinear, PrunableConv2d)):
+                mask = (module.gate_scores > 0).float()
                 module.weight.data *= mask
     
     hard_acc = evaluate(best_model, testloader)
